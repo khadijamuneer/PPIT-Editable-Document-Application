@@ -1,67 +1,49 @@
 import streamlit as st
-from PIL import Image
+from google.cloud import vision
+from google.oauth2 import service_account
 from docx import Document
-import easyocr
-import os
+from PIL import Image
+import io
 
-# Initialize OCR reader (English)
-reader = easyocr.Reader(['en'])
+st.set_page_config(page_title="Image to Editable Document")
 
-# FUNCTIONS
-def extract_text(image_path):
-    """Extract readable text using easyocr"""
-    img = Image.open(image_path)
-    results = reader.readtext(img)
-    text = "\n".join([res[1] for res in results])
-    return text
-
-def save_image(image_path, save_path):
-    """Save diagram / full image"""
-    img = Image.open(image_path)
-    img.save(save_path)
-
-def create_document(image_paths, output_docx="output.docx"):
-    """Create Word doc with text + images"""
-    doc = Document()
-    for idx, img_path in enumerate(image_paths):
-        doc.add_heading(f"Image {idx+1}", level=1)
-        
-        # Extract and add text
-        text = extract_text(img_path)
-        if text.strip():  # only add if some text is detected
-            doc.add_paragraph(text)
-        else:
-            doc.add_paragraph("[No readable text detected]")
-
-        # Add diagram / full image
-        image_file = f"diagram_{idx+1}.png"
-        save_image(img_path, image_file)
-        doc.add_picture(image_file)
-
-    doc.save(output_docx)
-    return output_docx
-
-# STREAMLIT UI
-st.title("🖼️ Image to Editable Document App")
+st.title("📄 Image to Editable Document App")
 
 uploaded_files = st.file_uploader(
-    "Upload exactly 3 images", type=["png","jpg","jpeg"], accept_multiple_files=True
+    "Upload 3 images", type=["png", "jpg", "jpeg"], accept_multiple_files=True
 )
 
 if uploaded_files and len(uploaded_files) == 3:
-    st.write("Processing images... ⏳")
-    
-    image_paths = []
-    for i, uploaded_file in enumerate(uploaded_files):
-        img_path = f"image_{i+1}.png"
-        with open(img_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        image_paths.append(img_path)
-    
-    output_docx = create_document(image_paths)
-    st.success("✅ Document created successfully!")
+    # Google Vision credentials from Streamlit secrets
+    credentials = service_account.Credentials.from_service_account_info(
+        st.secrets["gcloud_service_account"]
+    )
+    client = vision.ImageAnnotatorClient(credentials=credentials)
 
-    with open(output_docx, "rb") as f:
-        st.download_button("📥 Download Document", f, file_name=output_docx)
+    doc = Document()
+
+    for idx, uploaded_file in enumerate(uploaded_files):
+        doc.add_heading(f"Image {idx+1}", level=1)
+
+        # Read image bytes
+        image_bytes = uploaded_file.read()
+        image = vision.Image(content=image_bytes)
+
+        # OCR using Google Vision
+        response = client.text_detection(image=image)
+        text = response.text_annotations[0].description if response.text_annotations else ""
+        doc.add_paragraph(text)
+
+        # Add image to Word doc
+        img = Image.open(io.BytesIO(image_bytes))
+        img_path = f"image_{idx+1}.png"
+        img.save(img_path)
+        doc.add_picture(img_path)
+
+    # Save Word doc
+    doc.save("output.docx")
+    st.success("✅ Document created successfully!")
+    with open("output.docx", "rb") as f:
+        st.download_button("Download Document", f, file_name="output.docx")
 else:
     st.info("Please upload exactly 3 images.")
