@@ -1,18 +1,21 @@
 import streamlit as st
-import cv2
-import pytesseract
 from PIL import Image
 from docx import Document
+import easyocr
+
+# Initialize OCR reader (English)
+reader = easyocr.Reader(['en'])
 
 # FUNCTIONS
 def extract_text(image_path):
-    img = cv2.imread(image_path)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    return pytesseract.image_to_string(img)
+    img = Image.open(image_path)
+    results = reader.readtext(img)
+    text = "\n".join([res[1] for res in results])
+    return text
 
 def save_diagram(image_path, diagram_path):
-    img = cv2.imread(image_path)
-    cv2.imwrite(diagram_path, img)
+    img = Image.open(image_path)
+    img.save(diagram_path)
 
 def create_document(image_paths, output_docx="output.docx"):
     doc = Document()
